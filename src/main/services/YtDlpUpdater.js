@@ -31,18 +31,44 @@ class YtDlpUpdater {
     }
   }
 
+  getTargetBinaryPath() {
+    const binaryName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+    return path.join(this.binDir, binaryName);
+  }
+
+  async getStatus() {
+    const targetBinaryPath = this.getTargetBinaryPath();
+    let localVersion = await this._getLocalBinaryVersion(targetBinaryPath);
+    let activeBinaryPath = targetBinaryPath;
+
+    if (!localVersion) {
+      try {
+        const { BinaryResolver } = require('../utils/BinaryResolver');
+        activeBinaryPath = BinaryResolver.getBinaryPath('yt-dlp');
+        localVersion = await this._getLocalBinaryVersion(activeBinaryPath);
+      } catch {}
+    }
+
+    return {
+      binaryPath: activeBinaryPath,
+      localVersion: localVersion || 'Unknown',
+      isUpdating: this.isUpdating,
+    };
+  }
+
   /**
    * Queries local binary version and compares it against GitHub Releases API.
+   * Returns a status object describing the result.
    */
   async checkForUpdates() {
-    if (this.isUpdating) return;
+    if (this.isUpdating) {
+      return { success: false, message: 'Update check already in progress.' };
+    }
     this.isUpdating = true;
 
     try {
       await fsp.mkdir(this.binDir, { recursive: true });
-
-      const binaryName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-      const targetBinaryPath = path.join(this.binDir, binaryName);
+      const targetBinaryPath = this.getTargetBinaryPath();
 
       const localVersion = await this._getLocalBinaryVersion(targetBinaryPath);
       console.log(`[YtDlpUpdater] Local yt-dlp version: ${localVersion || 'Not found'}`);
@@ -62,11 +88,30 @@ class YtDlpUpdater {
         console.log(`[YtDlpUpdater] New version detected (${latestVersion}). Starting atomic update...`);
         await this._downloadAndReplaceBinary(releaseData, targetBinaryPath);
         console.log('[YtDlpUpdater] Successfully updated yt-dlp binary.');
+        return {
+          success: true,
+          updated: true,
+          localVersion: latestVersion,
+          latestVersion,
+          message: `Updated yt-dlp to latest version ${latestVersion}.`,
+        };
       } else {
         console.log('[YtDlpUpdater] yt-dlp is already up to date.');
+        return {
+          success: true,
+          updated: false,
+          localVersion,
+          latestVersion,
+          message: `yt-dlp is already up to date (${localVersion}).`,
+        };
       }
     } catch (err) {
       console.error('[YtDlpUpdater] Background update check failed:', err.message);
+      return {
+        success: false,
+        updated: false,
+        message: `Update check failed: ${err.message}`,
+      };
     } finally {
       this.isUpdating = false;
     }

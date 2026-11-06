@@ -203,6 +203,55 @@ body {
   color: var(--text-secondary);
 }
 
+.updater-card {
+  margin-top: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.updater-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.updater-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.8px;
+}
+
+.updater-ver {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.updater-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.updater-status {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.2;
+}
+
 /* Main Workspace */
 .workspace {
   display: flex;

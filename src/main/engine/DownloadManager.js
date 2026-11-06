@@ -10,9 +10,9 @@ const { SegmentWorker } = require('./SegmentWorker');
 class DownloadManager extends EventEmitter {
   constructor(options = {}) {
     super();
-    this.configDir = path.join(os.homedir(), '.config', 'bravedm');
-    this.stateFile = path.join(this.configDir, 'state.json');
-    this.defaultConnections = options.maxConnections || 32; // Up to 64 parallel connections
+    this.configDir = options.configDir || path.join(os.homedir(), '.config', 'bravedm');
+    this.stateFile = options.stateFile || path.join(this.configDir, 'state.json');
+    this.defaultConnections = options.maxConnections || 64; // Default to 64 parallel connections
     this.minChunkSize = 1024 * 512; // 512 KB minimum split threshold
 
     /** @type {Map<string, Object>} Serialized task metadata */
@@ -144,7 +144,7 @@ class DownloadManager extends EventEmitter {
       downloadedBytes: 0,
       speedBps: 0,
       supportsRanges: false,
-      connections: 32,
+      connections: 64,
       status: 'downloading',
       error: null,
       createdAt: Date.now(),
@@ -185,7 +185,15 @@ class DownloadManager extends EventEmitter {
       if (disposition && !task.meta.lockedFilename) {
         const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)["']?/i);
         if (match && match[1]) {
-          task.filename = decodeURIComponent(match[1]);
+          task.filename = decodeURIComponent(match[1].trim());
+        }
+      }
+
+      // If Content-Disposition was not present or didn't set a real name, try redirected final URL
+      if ((!task.filename || task.filename.startsWith('bravedm_')) && res.url) {
+        const fromFinalUrl = this._extractFilenameFromUrl(res.url);
+        if (fromFinalUrl && !fromFinalUrl.startsWith('bravedm_')) {
+          task.filename = fromFinalUrl;
         }
       }
 
@@ -208,7 +216,11 @@ class DownloadManager extends EventEmitter {
 
       await fsp.mkdir(task.saveDir, { recursive: true });
       task.finalPath = await this._resolveUniqueFilePath(path.join(task.saveDir, task.filename));
+      task.filename = path.basename(task.finalPath);
       task.partPath = `${task.finalPath}.bravedm.part`;
+
+      // Broadcast updated real filename to UI immediately
+      this.emit('task:updated', this._sanitizeTaskForUI(task));
 
       // Pre-create and allocate the .bravedm.part container on disk
       const fh = await fsp.open(task.partPath, 'w');
@@ -414,6 +426,11 @@ class DownloadManager extends EventEmitter {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+
     if (task.status === 'downloading') {
       await this.pauseTask(taskId);
     }
@@ -436,6 +453,33 @@ class DownloadManager extends EventEmitter {
   }
 
   /**
+   * Clears all completed download tasks from the queue and state.
+   */
+  async clearCompletedTasks() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+
+    const completedIds = [];
+    for (const [id, task] of this.tasks.entries()) {
+      if (task.status === 'completed') {
+        completedIds.push(id);
+      }
+    }
+
+    for (const id of completedIds) {
+      this.tasks.delete(id);
+      this.activeControllers.delete(id);
+      this.speedTrackers.delete(id);
+      this.emit('task:deleted', id);
+    }
+
+    await this._persistStateImmediate();
+    return completedIds;
+  }
+
+  /**
    * Flushes OS file buffers via fsync, verifies byte integrity, and renames .bravedm.part to finalPath.
    */
   async _finalizeTask(task) {
@@ -455,6 +499,12 @@ class DownloadManager extends EventEmitter {
 
     // 2. Rename .bravedm.part to final destination file
     await fsp.rename(task.partPath, task.finalPath);
+
+    try {
+      const stat = await fsp.stat(task.finalPath);
+      task.totalBytes = stat.size;
+      task.downloadedBytes = stat.size;
+    } catch {}
 
     task.status = 'completed';
     task.speedBps = 0;

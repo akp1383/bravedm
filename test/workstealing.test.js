@@ -51,7 +51,7 @@ test('Dynamic Work-Stealing in-flight download execution and assembly verificati
   const tmpDir = path.join(os.tmpdir(), `bravedm-steal-${Date.now()}`);
   await fsp.mkdir(tmpDir, { recursive: true });
 
-  const dm = new DownloadManager({ maxConnections: 4 });
+  const dm = new DownloadManager({ maxConnections: 4, configDir: tmpDir });
   dm.minChunkSize = 256 * 1024; // 256 KB
   await dm.init();
 

@@ -46,6 +46,23 @@
     renderTaskList();
     bindUIEvents();
     bindIPCListeners();
+    loadVersions();
+  }
+
+  async function loadVersions() {
+    const badge = document.getElementById('yt-dlp-version-badge');
+    if (!badge) return;
+    try {
+      const v = await api.getVersions();
+      if (v && v.ytDlp && v.ytDlp.localVersion) {
+        badge.textContent = v.ytDlp.localVersion.startsWith('v') ? v.ytDlp.localVersion : `v${v.ytDlp.localVersion}`;
+        badge.title = `yt-dlp: ${v.ytDlp.binaryPath}`;
+      } else {
+        badge.textContent = 'yt-dlp ready';
+      }
+    } catch (err) {
+      badge.textContent = 'yt-dlp ready';
+    }
   }
 
   function bindIPCListeners() {
@@ -229,11 +246,31 @@
       });
 
       const deleteBtn = card.querySelector('.btn-delete-task');
-      deleteBtn.addEventListener('click', () => {
-        api.deleteTask(task.id, false);
+      deleteBtn.addEventListener('click', async () => {
+        const current = tasks.get(task.id) || task;
+        if (confirm(`Delete transfer "${current.filename}"?`)) {
+          tasks.delete(task.id);
+          card.remove();
+          updateSidebarCounts();
+          checkEmptyState();
+          try {
+            await api.deleteTask(task.id, false);
+          } catch (err) {
+            console.error('Failed to delete task:', err);
+          }
+        }
       });
 
       taskListEl.prepend(card);
+    }
+
+    // Always update filename and icon in case of redirects or Content-Disposition resolution
+    const filenameEl = card.querySelector('.task-filename');
+    if (filenameEl && filenameEl.textContent !== task.filename) {
+      filenameEl.textContent = task.filename;
+      filenameEl.title = task.filename;
+      const iconEl = card.querySelector('.file-icon');
+      if (iconEl) iconEl.innerHTML = getFileTypeIconSVG(task.filename);
     }
 
     // Update text telemetry
@@ -403,9 +440,59 @@
     document.getElementById('btn-close-modal').addEventListener('click', closeModal);
     document.getElementById('btn-cancel-modal').addEventListener('click', closeModal);
 
-    sliderEl.addEventListener('input', () => {
-      sliderReadoutEl.textContent = `${sliderEl.value} Segments`;
-    });
+    if (sliderEl && sliderReadoutEl) {
+      sliderEl.addEventListener('input', () => {
+        sliderReadoutEl.textContent = `${sliderEl.value} Segments`;
+      });
+    }
+
+    // Clear All Completed Transfers
+    const clearCompletedBtn = document.getElementById('btn-clear-completed');
+    if (clearCompletedBtn) {
+      clearCompletedBtn.addEventListener('click', async () => {
+        try {
+          const clearedIds = await api.clearCompletedTasks();
+          for (const id of clearedIds || []) {
+            tasks.delete(id);
+            const card = document.getElementById(`task-${id}`);
+            if (card) card.remove();
+          }
+          updateSidebarCounts();
+          checkEmptyState();
+        } catch (err) {
+          console.error('Failed to clear completed tasks:', err);
+        }
+      });
+    }
+
+    // Check & Apply yt-dlp Updates
+    const checkUpdatesBtn = document.getElementById('btn-check-updates');
+    const updateStatusText = document.getElementById('updater-status-text');
+    if (checkUpdatesBtn) {
+      checkUpdatesBtn.addEventListener('click', async () => {
+        checkUpdatesBtn.disabled = true;
+        checkUpdatesBtn.textContent = 'Checking...';
+        if (updateStatusText) updateStatusText.textContent = 'Checking GitHub...';
+        try {
+          const res = await api.checkYtDlpUpdate();
+          if (updateStatusText) {
+            updateStatusText.textContent = res.message || 'Check complete.';
+            updateStatusText.style.color = res.success ? 'var(--accent-green)' : 'var(--accent-red)';
+          }
+          await loadVersions();
+        } catch (err) {
+          if (updateStatusText) {
+            updateStatusText.textContent = `Error: ${err.message}`;
+            updateStatusText.style.color = 'var(--accent-red)';
+          }
+        } finally {
+          setTimeout(() => {
+            checkUpdatesBtn.disabled = false;
+            checkUpdatesBtn.textContent = 'Check Updates';
+          }, 2500);
+        }
+      });
+    }
 
     // Clipboard Banner Actions
     document.getElementById('btn-clipboard-dismiss').addEventListener('click', () => {
@@ -440,7 +527,7 @@
         } else {
           await api.addHttpTask({
             url,
-            connections: parseInt(sliderEl.value, 10),
+            connections: 64, // Always 64 parallel segments by default
           });
         }
         closeModal();

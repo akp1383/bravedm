@@ -9,6 +9,24 @@ class MediaProber {
     this.ffmpegPath = options.ffmpegPath || 'ffmpeg';
   }
 
+  getYtDlpPath() {
+    try {
+      const { BinaryResolver } = require('../utils/BinaryResolver');
+      return BinaryResolver.getBinaryPath('yt-dlp');
+    } catch {
+      return this.ytDlpPath || 'yt-dlp';
+    }
+  }
+
+  getFfmpegPath() {
+    try {
+      const { BinaryResolver } = require('../utils/BinaryResolver');
+      return BinaryResolver.getBinaryPath('ffmpeg');
+    } catch {
+      return this.ffmpegPath || 'ffmpeg';
+    }
+  }
+
   /**
    * Probes a media URL via `yt-dlp --dump-single-json` and normalizes
    * available formats into 4K, 1080p, 720p, and Audio-Only presets.
@@ -18,6 +36,7 @@ class MediaProber {
    * @returns {Promise<Object>}
    */
   async probeUrl(targetUrl, timeoutMs = 25000) {
+    const currentYtDlp = this.getYtDlpPath();
     return new Promise((resolve, reject) => {
       const args = [
         '--dump-single-json',
@@ -27,7 +46,7 @@ class MediaProber {
         targetUrl,
       ];
 
-      const proc = spawn(this.ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(currentYtDlp, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       const stdoutChunks = [];
       const stderrChunks = [];
 
@@ -94,12 +113,19 @@ class MediaProber {
       { id: '720p', label: 'HD (720p)', height: 720 },
     ];
 
+    const duration = info.duration || 0;
+
     for (const tier of tiers) {
       const match = findBestVideoForHeight(tier.height);
       if (match) {
         const needsMux = !match.acodec || match.acodec === 'none';
-        const approxSize = (match.filesize || match.filesize_approx || 0) +
-          (needsMux && bestAudio ? (bestAudio.filesize || bestAudio.filesize_approx || 0) : 0);
+        const videoBytes = match.filesize || match.filesize_approx ||
+          (match.tbr && duration ? Math.round((match.tbr * 1000 / 8) * duration) : 0);
+        const audioBytes = bestAudio
+          ? (bestAudio.filesize || bestAudio.filesize_approx ||
+             (bestAudio.tbr && duration ? Math.round((bestAudio.tbr * 1000 / 8) * duration) : 0))
+          : 0;
+        const approxSize = videoBytes + (needsMux ? audioBytes : 0);
 
         presets.push({
           presetId: tier.id,
@@ -123,6 +149,8 @@ class MediaProber {
         .sort((a, b) => (b.height || 0) - (a.height || 0))[0];
 
       if (bestGeneric) {
+        const approxSize = bestGeneric.filesize || bestGeneric.filesize_approx ||
+          (bestGeneric.tbr && duration ? Math.round((bestGeneric.tbr * 1000 / 8) * duration) : 0);
         presets.push({
           presetId: 'best',
           label: `Standard Video (${bestGeneric.height || 720}p)`,
@@ -130,7 +158,7 @@ class MediaProber {
           formatSelector: bestGeneric.format_id,
           directUrl: bestGeneric.url || null,
           requiresMuxing: false,
-          estimatedBytes: bestGeneric.filesize || bestGeneric.filesize_approx || 0,
+          estimatedBytes: approxSize,
           fps: bestGeneric.fps || 30,
         });
       }
@@ -179,7 +207,9 @@ class MediaProber {
    * @param {Function} [options.onProgress]
    * @returns {Promise<string>}
    */
-  downloadMediaStream({ url, formatSelector, outputPath, concurrentFragments = 32, onProgress }) {
+  downloadMediaStream({ url, formatSelector, outputPath, concurrentFragments = 64, onProgress }) {
+    const currentYtDlp = this.getYtDlpPath();
+    const currentFfmpeg = this.getFfmpegPath();
     return new Promise((resolve, reject) => {
       const args = [
         '--no-playlist',
@@ -187,12 +217,12 @@ class MediaProber {
         '--concurrent-fragments', String(concurrentFragments),
         '-f', formatSelector,
         '--merge-output-format', outputPath.endsWith('.m4a') ? 'm4a' : 'mp4',
-        '--ffmpeg-location', this.ffmpegPath,
+        '--ffmpeg-location', currentFfmpeg,
         '-o', outputPath,
         url,
       ];
 
-      const proc = spawn(this.ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(currentYtDlp, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       let stderrLog = '';
 
       proc.stdout.on('data', (data) => {

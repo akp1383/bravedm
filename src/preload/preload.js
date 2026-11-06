@@ -9,8 +9,11 @@ const apiDefinition = {
   pauseTask: (taskId) => ipcRenderer.invoke('bravedm:pause-task', taskId),
   resumeTask: (taskId) => ipcRenderer.invoke('bravedm:resume-task', taskId),
   deleteTask: (taskId, deleteFiles = false) => ipcRenderer.invoke('bravedm:delete-task', { id: taskId, deleteFiles }),
+  clearCompletedTasks: () => ipcRenderer.invoke('bravedm:clear-completed-tasks'),
   openFile: (filePath) => ipcRenderer.invoke('bravedm:open-file', filePath),
   showInFolder: (filePath) => ipcRenderer.invoke('bravedm:show-in-folder', filePath),
+  getVersions: () => ipcRenderer.invoke('bravedm:get-versions'),
+  checkYtDlpUpdate: () => ipcRenderer.invoke('bravedm:check-yt-dlp-update'),
 
   // Event Subscriptions for Real-Time Dark-Mode UI & Segment Visualizers
   onEvent: (channel, callback) => {

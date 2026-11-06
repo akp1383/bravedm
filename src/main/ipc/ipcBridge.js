@@ -2,17 +2,34 @@
 const { ipcMain, clipboard, app, shell } = require('electron');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const fsp = require('node:fs/promises');
+
+function parseSizeStrToBytes(str) {
+  if (!str || typeof str !== 'string') return 0;
+  const match = str.trim().match(/^([0-9.]+)\s*([A-Za-z]+)?$/);
+  if (!match) return 0;
+  const val = parseFloat(match[1]);
+  const unit = (match[2] || '').toUpperCase();
+  if (unit === 'KIB' || unit === 'KB') return Math.round(val * 1024);
+  if (unit === 'MIB' || unit === 'MB') return Math.round(val * 1024 * 1024);
+  if (unit === 'GIB' || unit === 'GB') return Math.round(val * 1024 * 1024 * 1024);
+  if (unit === 'TIB' || unit === 'TB') return Math.round(val * 1024 * 1024 * 1024 * 1024);
+  if (unit === 'B') return Math.round(val);
+  return Math.round(val);
+}
 
 class IpcBridge {
   /**
    * @param {Electron.BrowserWindow} mainWindow
    * @param {import('../engine/DownloadManager').DownloadManager} downloadManager
    * @param {import('../services/MediaProber').MediaProber} mediaProber
+   * @param {import('../services/YtDlpUpdater').YtDlpUpdater} [ytDlpUpdater]
    */
-  constructor(mainWindow, downloadManager, mediaProber) {
+  constructor(mainWindow, downloadManager, mediaProber, ytDlpUpdater) {
     this.mainWindow = mainWindow;
     this.dm = downloadManager;
     this.prober = mediaProber;
+    this.updater = ytDlpUpdater || null;
 
     /**
      * Mutex lock Set preventing multi-click race conditions on URL probing
@@ -112,9 +129,9 @@ class IpcBridge {
       });
     });
 
-    // 3. Add Standard Turbo HTTP Download (1-64 segments)
+    // 3. Add Standard Turbo HTTP Download (Default 64 segments)
     handleBoth('vortex:add-http-task', 'bravedm:add-http-task', async (_event, payload) => {
-      const { url, saveDir, filename, connections = 32, meta = {} } = payload;
+      const { url, saveDir, filename, connections = 64, meta = {} } = payload;
       const targetDir = saveDir || app.getPath('downloads');
       const lockKey = `spawn:${url}:${filename || ''}`;
 
@@ -123,7 +140,7 @@ class IpcBridge {
           url,
           saveDir: targetDir,
           filename,
-          connections: parseInt(connections, 10) || 32,
+          connections: parseInt(connections, 10) || 64,
           meta,
         });
         return { taskId };
@@ -146,7 +163,7 @@ class IpcBridge {
             url: preset.directUrl,
             saveDir: targetDir,
             filename,
-            connections: 32,
+            connections: 64,
             meta: {
               source: 'yt-dlp-direct',
               thumbnail,
@@ -199,14 +216,21 @@ class IpcBridge {
           presetLabel: preset.label,
         });
 
-        // Launch yt-dlp download in background child process
+        // Launch yt-dlp download in background child process with 64 fragments
         this.prober
           .downloadMediaStream({
             url: webpageUrl,
             formatSelector: preset.formatSelector,
             outputPath: finalPath,
-            concurrentFragments: 32,
+            concurrentFragments: 64,
             onProgress: (progress) => {
+              if (progress.totalSizeStr) {
+                const parsedBytes = parseSizeStrToBytes(progress.totalSizeStr);
+                if (parsedBytes > 0 && (!taskRecord.totalBytes || parsedBytes > taskRecord.totalBytes)) {
+                  taskRecord.totalBytes = parsedBytes;
+                }
+              }
+
               if (progress.percent != null) {
                 taskRecord.downloadedBytes = taskRecord.totalBytes
                   ? Math.round((progress.percent / 100) * taskRecord.totalBytes)
@@ -218,23 +242,25 @@ class IpcBridge {
               this.dm.emit('task:updated', this.dm._sanitizeTaskForUI(taskRecord));
             },
           })
-          .then(() => {
+          .then(async () => {
             taskRecord.status = 'completed';
             taskRecord.completedAt = Date.now();
             taskRecord.finalPath = finalPath;
-            if (taskRecord.totalBytes > 0) {
-              taskRecord.downloadedBytes = taskRecord.totalBytes;
-            }
-            this.dm.scheduleSave();
+            try {
+              const stat = await fsp.stat(finalPath);
+              taskRecord.totalBytes = stat.size;
+              taskRecord.downloadedBytes = stat.size;
+            } catch {}
+            await this.dm._persistStateImmediate();
 
             notifyUI('vortex:media-mux-completed', { id: taskId, finalPath });
             notifyUI('bravedm:media-mux-completed', { id: taskId, finalPath });
             this.dm.emit('task:completed', this.dm._sanitizeTaskForUI(taskRecord));
           })
-          .catch((err) => {
+          .catch(async (err) => {
             taskRecord.status = 'error';
             taskRecord.error = err.message;
-            this.dm.scheduleSave();
+            await this.dm._persistStateImmediate();
 
             notifyUI('vortex:media-mux-error', { id: taskId, error: err.message });
             notifyUI('bravedm:media-mux-error', { id: taskId, error: err.message });
@@ -249,11 +275,15 @@ class IpcBridge {
     handleBoth('vortex:pause-task', 'bravedm:pause-task', (_e, taskId) => this.dm.pauseTask(taskId));
     handleBoth('vortex:resume-task', 'bravedm:resume-task', (_e, taskId) => this.dm.startTask(taskId));
 
-    // 6. Task Deletion
-    handleBoth('vortex:delete-task', 'bravedm:delete-task', (_e, payload) => {
+    // 6. Task Deletion & Clear Completed
+    handleBoth('vortex:delete-task', 'bravedm:delete-task', async (_e, payload) => {
       const taskId = typeof payload === 'string' ? payload : payload.id;
       const deleteDiskFiles = typeof payload === 'object' ? Boolean(payload.deleteFiles) : false;
-      return this.dm.deleteTask(taskId, deleteDiskFiles);
+      return await this.dm.deleteTask(taskId, deleteDiskFiles);
+    });
+
+    handleBoth('vortex:clear-completed-tasks', 'bravedm:clear-completed-tasks', async () => {
+      return await this.dm.clearCompletedTasks();
     });
 
     // 7. Open File / Show In Folder
@@ -267,6 +297,24 @@ class IpcBridge {
       if (filePath) {
         shell.showItemInFolder(filePath);
       }
+    });
+
+    // 8. Version Inspection & yt-dlp Updater Commands
+    handleBoth('vortex:get-versions', 'bravedm:get-versions', async () => {
+      const ytDlpStatus = this.updater ? await this.updater.getStatus() : { localVersion: 'N/A' };
+      return {
+        appVersion: app.getVersion(),
+        electronVersion: process.versions.electron,
+        nodeVersion: process.versions.node,
+        ytDlp: ytDlpStatus,
+      };
+    });
+
+    handleBoth('vortex:check-yt-dlp-update', 'bravedm:check-yt-dlp-update', async () => {
+      if (!this.updater) {
+        return { success: false, message: 'Updater service is not initialized.' };
+      }
+      return await this.updater.checkForUpdates();
     });
   }
 

@@ -14,7 +14,7 @@ let ipcBridge = null;
 let ytDlpUpdater = null;
 
 async function bootstrap() {
-  downloadManager = new DownloadManager({ maxConnections: 32 });
+  downloadManager = new DownloadManager({ maxConnections: 64 });
   await downloadManager.init();
 
   const ytDlpPath = BinaryResolver.getBinaryPath('yt-dlp');
@@ -49,7 +49,7 @@ async function bootstrap() {
     },
   });
 
-  ipcBridge = new IpcBridge(mainWindow, downloadManager, mediaProber);
+  ipcBridge = new IpcBridge(mainWindow, downloadManager, mediaProber, ytDlpUpdater);
   ipcBridge.register();
 
   mainWindow.removeMenu();

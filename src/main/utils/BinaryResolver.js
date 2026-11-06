@@ -17,19 +17,20 @@ class BinaryResolver {
     const isWin = process.platform === 'win32';
     const exeName = isWin ? `${binaryName}.exe` : binaryName;
 
-    // 1. Packaged Production Build (process.resourcesPath/bin/)
+    // 1. Updated binary in user config directory (~/.config/bravedm/bin/)
+    // Takes highest precedence so in-app or background updates override packaged versions
+    const userBinDir = path.join(os.homedir(), '.config', 'bravedm', 'bin');
+    const userBinPath = path.join(userBinDir, exeName);
+    if (fs.existsSync(userBinPath)) {
+      return userBinPath;
+    }
+
+    // 2. Packaged Production Build (process.resourcesPath/bin/)
     if (app && app.isPackaged) {
       const prodPath = path.join(process.resourcesPath, 'bin', exeName);
       if (fs.existsSync(prodPath)) {
         return prodPath;
       }
-    }
-
-    // 2. Updated binary in user config directory (~/.config/bravedm/bin/)
-    const userBinDir = path.join(os.homedir(), '.config', 'bravedm', 'bin');
-    const userBinPath = path.join(userBinDir, exeName);
-    if (fs.existsSync(userBinPath)) {
-      return userBinPath;
     }
 
     // 3. Local Development Workspace (bin/{linux|mac}/{x64|arm64}/)

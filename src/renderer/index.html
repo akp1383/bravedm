@@ -50,6 +50,18 @@
           <span class="badge-tag">Work-Steal: ON</span>
         </div>
       </div>
+
+      <!-- yt-dlp & Engine Version Card -->
+      <div class="updater-card">
+        <div class="updater-header">
+          <span class="updater-label">YT-DLP CORE</span>
+          <span class="updater-ver" id="yt-dlp-version-badge">Loading...</span>
+        </div>
+        <div class="updater-actions">
+          <button class="btn btn-xs btn-outline" id="btn-check-updates">Check Updates</button>
+          <span class="updater-status" id="updater-status-text"></span>
+        </div>
+      </div>
     </aside>
 
     <!-- Main Content Area -->
@@ -65,6 +77,13 @@
         </div>
 
         <div class="topbar-actions">
+          <button class="btn btn-secondary" id="btn-clear-completed" title="Clear all finished tasks from list">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            Clear Completed
+          </button>
           <button class="btn btn-primary" id="btn-open-modal">
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
               <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -98,7 +117,7 @@
             </svg>
           </div>
           <h3>No Downloads Yet</h3>
-          <p>Click "New Turbo / Media Task" or copy any direct URL or YouTube link to start downloading with 32-64 parallel streams.</p>
+          <p>Click "New Turbo / Media Task" or copy any direct URL or YouTube link to start downloading with 64 parallel streams.</p>
         </div>
       </section>
     </main>
@@ -119,13 +138,9 @@
           <button class="btn btn-secondary" id="btn-probe-media">Probe Media (yt-dlp)</button>
         </div>
 
-        <!-- Thread / Segment Slider for Direct HTTP -->
-        <div class="config-row" id="http-config-row">
-          <div class="slider-header">
-            <label class="field-label" for="modal-connections-slider">Parallel Range Connections (Dynamic Work-Stealing)</label>
-            <span class="slider-value" id="connections-readout">32 Segments</span>
-          </div>
-          <input type="range" id="modal-connections-slider" min="1" max="64" value="32" />
+        <!-- Thread / Segment Slider Hidden: Turbo Engine uses 64 segments automatically -->
+        <div class="config-row hidden" id="http-config-row">
+          <input type="range" id="modal-connections-slider" min="1" max="64" value="64" />
         </div>
 
         <!-- Probed Media Preview & Resolution Selector (Populated via yt-dlp) -->

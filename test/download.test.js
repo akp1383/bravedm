@@ -54,7 +54,7 @@ test('End-to-end multi-segment HTTP Range download with file verification', asyn
   const tmpDir = path.join(os.tmpdir(), `bravedm-e2e-${Date.now()}`);
   await fsp.mkdir(tmpDir, { recursive: true });
 
-  const dm = new DownloadManager({ maxConnections: 4 });
+  const dm = new DownloadManager({ maxConnections: 4, configDir: tmpDir });
   dm.minChunkSize = 256 * 1024; // 256 KB for test
   await dm.init();
 
