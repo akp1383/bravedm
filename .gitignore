@@ -1,12 +1,11 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Build outputs
 dist/
 build/temp/
 
-# Logs & temp files
+# Logs & temporary files
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -15,3 +14,7 @@ yarn-error.log*
 *.tmp
 *.part
 *.bravedm.part
+
+# Local state & configs
+.config/
+state.json
