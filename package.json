@@ -1,0 +1,23 @@
+{
+  "name": "bravedm",
+  "productName": "Brave Download Manager",
+  "version": "1.0.0",
+  "description": "High-Performance Hybrid Segmented & Media Stream Download Manager",
+  "main": "src/main/index.js",
+  "author": "Toufique Patel",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "test": "node --test test/*.test.js",
+    "fetch:bins": "node scripts/fetch-binaries.js",
+    "dist:linux": "electron-builder --linux AppImage pacman deb --x64",
+    "dist:mac": "electron-builder --mac dmg zip --arm64",
+    "dist:all": "electron-builder -mwl"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

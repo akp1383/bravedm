@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline';" />
+  <title>Brave Download Manager</title>
+  <link rel="stylesheet" href="./styles/theme-dark.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Left Navigation Sidebar -->
+    <aside class="sidebar">
+      <div class="brand-header">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">BRAVEDM</h1>
+          <span class="brand-subtitle">HYBRID TURBO ENGINE</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-filter="all">
+          <span>All Transfers</span>
+          <span class="badge" id="count-all">0</span>
+        </button>
+        <button class="nav-item" data-filter="downloading">
+          <span>Active Streams</span>
+          <span class="badge badge-cyan" id="count-active">0</span>
+        </button>
+        <button class="nav-item" data-filter="completed">
+          <span>Completed</span>
+          <span class="badge" id="count-completed">0</span>
+        </button>
+      </nav>
+
+      <!-- Global Speed & Work-Stealing Telemetry -->
+      <div class="telemetry-card">
+        <div class="telemetry-header">
+          <span class="telemetry-label">GLOBAL THROUGHPUT</span>
+          <span class="live-dot"></span>
+        </div>
+        <div class="telemetry-speed" id="global-speed">0.00 MB/s</div>
+        <div class="telemetry-meta">
+          <span id="active-pipes-count">0 Active Pipes</span>
+          <span class="badge-tag">Work-Steal: ON</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="workspace">
+      <!-- Top Drag Bar & Action Controls -->
+      <header class="topbar">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="search-input" placeholder="Filter tasks by filename or domain..." />
+        </div>
+
+        <div class="topbar-actions">
+          <button class="btn btn-primary" id="btn-open-modal">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            New Turbo / Media Task
+          </button>
+        </div>
+      </header>
+
+      <!-- Clipboard Auto-Paste Detection Banner -->
+      <div class="clipboard-banner hidden" id="clipboard-banner">
+        <div class="clipboard-info">
+          <span class="clipboard-badge" id="clipboard-type-badge">MEDIA STREAM</span>
+          <span class="clipboard-url" id="clipboard-detected-url"></span>
+        </div>
+        <div class="clipboard-actions">
+          <button class="btn btn-xs btn-cyan" id="btn-clipboard-grab">Inspect &amp; Download</button>
+          <button class="btn btn-xs btn-ghost" id="btn-clipboard-dismiss">Dismiss</button>
+        </div>
+      </div>
+
+      <!-- Task Card Queue -->
+      <section class="task-list" id="task-list">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </div>
+          <h3>No Downloads Yet</h3>
+          <p>Click "New Turbo / Media Task" or copy any direct URL or YouTube link to start downloading with 32-64 parallel streams.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Add Download / YouTube Media Harvester Modal -->
+  <div class="modal-backdrop hidden" id="add-modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2>Add Turbo HTTP or Media Stream</h2>
+        <button class="btn-icon" id="btn-close-modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <label class="field-label" for="modal-url-input">Source URL (Direct File or YouTube / Vimeo / Twitch Link)</label>
+        <div class="url-input-group">
+          <input type="url" id="modal-url-input" placeholder="https://example.com/archive.iso or https://youtube.com/watch?v=..." />
+          <button class="btn btn-secondary" id="btn-probe-media">Probe Media (yt-dlp)</button>
+        </div>
+
+        <!-- Thread / Segment Slider for Direct HTTP -->
+        <div class="config-row" id="http-config-row">
+          <div class="slider-header">
+            <label class="field-label" for="modal-connections-slider">Parallel Range Connections (Dynamic Work-Stealing)</label>
+            <span class="slider-value" id="connections-readout">32 Segments</span>
+          </div>
+          <input type="range" id="modal-connections-slider" min="1" max="64" value="32" />
+        </div>
+
+        <!-- Probed Media Preview & Resolution Selector (Populated via yt-dlp) -->
+        <div class="media-preview-card hidden" id="media-preview-card">
+          <div class="media-meta-row">
+            <img id="media-thumb" src="" alt="Thumbnail" class="media-thumb" />
+            <div class="media-details">
+              <span class="media-duration" id="media-duration">00:00</span>
+              <h3 class="media-title" id="media-title">Probing stream...</h3>
+              <p class="media-uploader" id="media-uploader"></p>
+            </div>
+          </div>
+          <label class="field-label">Select Stream Resolution / Format</label>
+          <div class="preset-grid" id="media-preset-grid"></div>
+        </div>
+
+        <p class="modal-status-msg hidden" id="modal-status-msg"></p>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btn-cancel-modal">Cancel</button>
+        <button class="btn btn-primary" id="btn-start-download">Start Turbo Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./renderer.js"></script>
+</body>
+</html>

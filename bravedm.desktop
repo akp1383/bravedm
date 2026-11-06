@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Brave Download Manager
+Comment=High-Performance Hybrid Segmented & yt-dlp Media Download Manager
+Exec=electron /home/toufique/Work/bravedm/src/main/index.js %U
+Icon=/home/toufique/Work/bravedm/build/icon.png
+Terminal=false
+Type=Application
+Categories=Network;FileTransfer;
+StartupWMClass=bravedm
+MimeType=x-scheme-handler/bravedm;
+Keywords=download;manager;idm;youtube;yt-dlp;fast;bravedm;

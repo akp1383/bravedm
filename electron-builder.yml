@@ -1,0 +1,99 @@
+appId: com.bravedm.app
+productName: Brave Download Manager
+copyright: Copyright © 2026 Brave DM Contributors
+
+directories:
+  output: dist
+  buildResources: build
+
+asar: true
+compression: maximum
+
+files:
+  - "src/**/*"
+  - "package.json"
+  - "!**/*.map"
+  - "!**/.DS_Store"
+
+extraResources:
+  - from: "bin/$os/${arch}/"
+    to: "bin"
+    filter:
+      - "**/*"
+
+afterPack: "./build/afterPack.js"
+
+protocols:
+  - name: "Brave Download Manager Protocol"
+    schemes:
+      - "bravedm"
+
+linux:
+  icon: build/icon.png
+  category: Network;FileTransfer;
+  synopsis: "Hybrid 64-Segment HTTP & yt-dlp Media Download Manager"
+  desktop:
+    StartupWMClass: "bravedm"
+    Keywords: "download;manager;idm;youtube;yt-dlp;fast;bravedm;"
+    MimeType: "x-scheme-handler/bravedm;"
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: pacman
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+
+appImage:
+  artifactName: "BraveDM-${version}-${arch}.AppImage"
+
+pacman:
+  artifactName: "bravedm-${version}-${arch}.pkg.tar.zst"
+  depends:
+    - gtk3
+    - nss
+    - alsa-lib
+    - libnotify
+    - xdg-utils
+  compression: zstd
+
+deb:
+  artifactName: "bravedm_${version}_${arch}.deb"
+  depends:
+    - libgtk-3-0
+    - libnss3
+    - libnotify4
+    - xdg-utils
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  darkModeSupport: true
+
+dmg:
+  artifactName: "BraveDM-${version}-macOS-${arch}.dmg"
+  title: "${productName} ${version}"
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 190
+    - x: 400
+      y: 190
+      type: link
+      path: /Applications

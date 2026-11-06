@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0d14" />
+      <stop offset="50%" stop-color="#10131c" />
+      <stop offset="100%" stop-color="#151925" />
+    </linearGradient>
+    <linearGradient id="cyanPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e5ff" />
+      <stop offset="50%" stop-color="#0099ff" />
+      <stop offset="100%" stop-color="#9d4edd" />
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="8" />
+
+  <!-- Outer segment tracking ring -->
+  <circle cx="256" cy="256" r="184" fill="none" stroke="#1c2438" stroke-width="14" stroke-dasharray="24,14" />
+  
+  <!-- Active glowing segments in the ring -->
+  <path d="M 256 72 A 184 184 0 0 1 440 256" fill="none" stroke="url(#cyanPurple)" stroke-width="16" stroke-linecap="round" filter="url(#glow)" />
+  <path d="M 440 256 A 184 184 0 0 1 310 432" fill="none" stroke="url(#emeraldGrad)" stroke-width="16" stroke-linecap="round" />
+
+  <!-- Multi-Segment Visualizer Bar (Miniature IDM/Vortex bar inside icon) -->
+  <g opacity="0.9">
+    <rect x="136" y="370" width="30" height="14" rx="6" fill="#10b981" />
+    <rect x="174" y="370" width="30" height="14" rx="6" fill="#10b981" />
+    <rect x="212" y="370" width="30" height="14" rx="6" fill="#00e5ff" />
+    <rect x="250" y="370" width="30" height="14" rx="6" fill="#00e5ff" />
+    <rect x="288" y="370" width="30" height="14" rx="6" fill="#9d4edd" />
+    <rect x="326" y="370" width="30" height="14" rx="6" fill="#334155" />
+  </g>
+
+  <!-- Central High-Velocity Turbo Download Arrow -->
+  <path d="M 256 136 L 256 296 M 176 216 L 256 296 L 336 216" fill="none" stroke="url(#cyanPurple)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)" />
+  
+  <!-- Glowing leading pulse point -->
+  <circle cx="256" cy="296" r="10" fill="#ffffff" filter="url(#glow)" />
+</svg>
