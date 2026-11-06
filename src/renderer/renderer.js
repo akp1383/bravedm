@@ -240,8 +240,11 @@
       const openFolderBtn = card.querySelector('.btn-open-folder');
       openFolderBtn.addEventListener('click', () => {
         const current = tasks.get(task.id);
-        if (current && current.finalPath) {
-          api.showInFolder(current.finalPath);
+        if (current) {
+          const target = current.status === 'completed'
+            ? current.finalPath
+            : (current.partPath || current.finalPath || current.saveDir);
+          api.showInFolder(target);
         }
       });
 
@@ -298,9 +301,15 @@
     if (task.status === 'completed') {
       toggleBtn.classList.add('hidden');
       openFileBtn.classList.remove('hidden');
+    } else if (task.status === 'probing') {
+      toggleBtn.classList.remove('hidden');
+      openFileBtn.classList.add('hidden');
+      toggleBtn.disabled = true;
+      toggleBtn.textContent = 'Probing...';
     } else {
       toggleBtn.classList.remove('hidden');
       openFileBtn.classList.add('hidden');
+      toggleBtn.disabled = false;
       toggleBtn.textContent = task.status === 'downloading' ? 'Pause' : 'Resume';
     }
 
@@ -508,11 +517,30 @@
     // Probe Media with yt-dlp
     btnProbeEl.addEventListener('click', () => triggerMediaProbe());
 
+    // Enter key handling on URL Input
+    urlInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = urlInputEl.value.trim();
+        if (isMediaUrl(val) && !probedMediaData) {
+          triggerMediaProbe();
+        } else {
+          btnStartEl.click();
+        }
+      }
+    });
+
     // Start Download (Protected by client lock + backend IPC mutex)
     btnStartEl.addEventListener('click', async () => {
       if (isModalBusy) return;
       const url = urlInputEl.value.trim();
       if (!url) return;
+
+      // If user pasted a media URL directly without probing, auto-probe first
+      if (!probedMediaData && isMediaUrl(url)) {
+        await triggerMediaProbe();
+        return;
+      }
 
       setModalBusy(true, 'Initializing high-speed stream...');
       try {
@@ -670,6 +698,10 @@
     return String(str || '').replace(/[&<>"']/g, (m) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[m]));
+  }
+
+  function isMediaUrl(text) {
+    return /(youtube\.com|youtu\.be|vimeo\.com|twitch\.tv|twitter\.com|x\.com|tiktok\.com|dailymotion\.com|soundcloud\.com|facebook\.com|instagram\.com)/i.test(text || '');
   }
 
   document.addEventListener('DOMContentLoaded', init);

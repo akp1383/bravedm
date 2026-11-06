@@ -207,7 +207,7 @@ class MediaProber {
    * @param {Function} [options.onProgress]
    * @returns {Promise<string>}
    */
-  downloadMediaStream({ url, formatSelector, outputPath, concurrentFragments = 64, onProgress }) {
+  downloadMediaStream({ url, formatSelector, outputPath, concurrentFragments = 64, signal, onProgress }) {
     const currentYtDlp = this.getYtDlpPath();
     const currentFfmpeg = this.getFfmpegPath();
     return new Promise((resolve, reject) => {
@@ -224,6 +224,25 @@ class MediaProber {
 
       const proc = spawn(currentYtDlp, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       let stderrLog = '';
+      let isKilledBySignal = false;
+
+      if (signal) {
+        if (signal.aborted) {
+          proc.kill('SIGTERM');
+          return reject(new Error('Media stream aborted.'));
+        }
+        const onAbort = () => {
+          isKilledBySignal = true;
+          try { proc.kill('SIGTERM'); } catch {}
+          setTimeout(() => {
+            try { proc.kill('SIGKILL'); } catch {}
+          }, 2500);
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        proc.on('close', () => {
+          signal.removeEventListener('abort', onAbort);
+        });
+      }
 
       proc.stdout.on('data', (data) => {
         const lines = data.toString('utf-8').split(/\r?\n/);
@@ -254,6 +273,9 @@ class MediaProber {
       });
 
       proc.on('close', async (code) => {
+        if (isKilledBySignal) {
+          return reject(new Error('Media download aborted by user.'));
+        }
         if (code !== 0) {
           return reject(new Error(stderrLog.trim() || `yt-dlp process exited with code ${code}`));
         }

@@ -121,3 +121,26 @@ test('BinaryResolver finds system yt-dlp and ffmpeg', () => {
   assert.ok(ytDlpPath);
   assert.ok(ffmpegPath);
 });
+
+test('DownloadManager collision avoidance and URL sanitization', async () => {
+  const tmpDir = path.join(os.tmpdir(), `bravedm-coll-${Date.now()}`);
+  await fsp.mkdir(tmpDir, { recursive: true });
+
+  const dm = new DownloadManager({ configDir: tmpDir });
+
+  // 1. URL extraction test with invalid percent encoding and special characters
+  const safeName1 = dm._extractFilenameFromUrl('https://example.com/downloads/file%20name%xyz.pdf?key=1');
+  assert.ok(safeName1.includes('.pdf'));
+
+  const safeName2 = dm._extractFilenameFromUrl('https://example.com/downloads/my<special>:file"name?.iso');
+  assert.ok(!/[<>:"?*]/.test(safeName2));
+
+  // 2. Collision avoidance against active tasks in memory
+  const targetFile = path.join(tmpDir, 'sample.mkv');
+  dm.tasks.set('task-1', { finalPath: targetFile });
+
+  const resolved = await dm._resolveUniqueFilePath(targetFile);
+  assert.equal(resolved, path.join(tmpDir, 'sample(1).mkv'));
+
+  await fsp.rm(tmpDir, { recursive: true, force: true });
+});

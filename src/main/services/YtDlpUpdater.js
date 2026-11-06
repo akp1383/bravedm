@@ -145,6 +145,8 @@ class YtDlpUpdater {
       assetName = 'yt-dlp_macos';
     } else if (process.platform === 'win32') {
       assetName = 'yt-dlp.exe';
+    } else if (process.platform === 'linux' && (process.arch === 'arm64' || process.arch === 'aarch64')) {
+      assetName = 'yt-dlp_linux_aarch64';
     }
 
     const asset = (releaseData.assets || []).find((a) => a.name === assetName);

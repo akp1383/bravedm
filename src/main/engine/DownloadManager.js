@@ -40,6 +40,13 @@ class DownloadManager extends EventEmitter {
         if (task.status === 'downloading' || task.status === 'probing') {
           task.status = 'paused';
         }
+        if (task.segments && task.segments.length > 0) {
+          const sum = task.segments.reduce((acc, s) => acc + Math.max(0, (s.currentOffset || s.startByte) - s.startByte), 0);
+          if (sum > 0) task.downloadedBytes = sum;
+        }
+        if (task.status === 'completed' && task.totalBytes > 0) {
+          task.downloadedBytes = task.totalBytes;
+        }
         this.tasks.set(task.id, task);
       }
     } catch (err) {
@@ -51,6 +58,18 @@ class DownloadManager extends EventEmitter {
 
     // 250ms high-frequency telemetry tick for smooth 60fps UI visualizer updates
     this.telemetryInterval = setInterval(() => this._broadcastTelemetry(), 250);
+  }
+
+  destroy() {
+    this.isShuttingDown = true;
+    if (this.telemetryInterval) {
+      clearInterval(this.telemetryInterval);
+      this.telemetryInterval = null;
+    }
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
   }
 
   scheduleSave() {
@@ -185,7 +204,14 @@ class DownloadManager extends EventEmitter {
       if (disposition && !task.meta.lockedFilename) {
         const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)["']?/i);
         if (match && match[1]) {
-          task.filename = decodeURIComponent(match[1].trim());
+          let rawName = match[1].trim().replace(/^["']|["']$/g, '');
+          try {
+            rawName = decodeURIComponent(rawName);
+          } catch {}
+          const sanitized = rawName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+          if (sanitized) {
+            task.filename = sanitized;
+          }
         }
       }
 
@@ -443,8 +469,10 @@ class DownloadManager extends EventEmitter {
       if (task.partPath) {
         await fsp.unlink(task.partPath).catch(() => {});
       }
-      if (task.finalPath && task.status === 'completed') {
+      if (task.finalPath) {
         await fsp.unlink(task.finalPath).catch(() => {});
+        await fsp.unlink(`${task.finalPath}.part`).catch(() => {});
+        await fsp.unlink(`${task.finalPath}.ytdl`).catch(() => {});
       }
     }
 
@@ -583,8 +611,15 @@ class DownloadManager extends EventEmitter {
   _extractFilenameFromUrl(urlStr) {
     try {
       const parsed = new URL(urlStr);
-      const base = path.basename(parsed.pathname);
-      return base && base.includes('.') ? decodeURIComponent(base) : `bravedm_${Date.now()}.bin`;
+      let base = path.basename(parsed.pathname);
+      if (base && base.includes('.')) {
+        try {
+          base = decodeURIComponent(base);
+        } catch {}
+        const sanitized = base.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+        if (sanitized) return sanitized;
+      }
+      return `bravedm_${Date.now()}.bin`;
     } catch {
       return `bravedm_${Date.now()}.bin`;
     }
@@ -597,11 +632,33 @@ class DownloadManager extends EventEmitter {
     let candidate = targetPath;
     let counter = 1;
 
+    const existingFinalPaths = new Set(
+      Array.from(this.tasks.values())
+        .map((t) => t.finalPath)
+        .filter(Boolean)
+    );
+
     while (true) {
+      if (existingFinalPaths.has(candidate)) {
+        candidate = path.join(dir, `${base}(${counter++})${ext}`);
+        continue;
+      }
+
+      let existsOnDisk = false;
       try {
         await fsp.access(candidate);
+        existsOnDisk = true;
+      } catch {}
+
+      let partExistsOnDisk = false;
+      try {
+        await fsp.access(`${candidate}.bravedm.part`);
+        partExistsOnDisk = true;
+      } catch {}
+
+      if (existsOnDisk || partExistsOnDisk) {
         candidate = path.join(dir, `${base}(${counter++})${ext}`);
-      } catch {
+      } else {
         return candidate;
       }
     }

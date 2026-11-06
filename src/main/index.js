@@ -95,10 +95,13 @@ app.on('activate', () => {
 app.on('before-quit', async (e) => {
   if (downloadManager && !downloadManager.isShuttingDown) {
     e.preventDefault();
-    downloadManager.isShuttingDown = true;
+    if (ipcBridge) {
+      ipcBridge.destroy();
+    }
     if (ytDlpUpdater) {
       ytDlpUpdater.stop();
     }
+    downloadManager.destroy();
     // Pause all active transfers cleanly so byte offsets flush to state.json
     const activeIds = Array.from(downloadManager.tasks.keys());
     await Promise.all(activeIds.map((id) => downloadManager.pauseTask(id)));

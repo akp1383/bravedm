@@ -36,6 +36,7 @@ class IpcBridge {
      * and task creation. Keys auto-expire once the async action settles.
      */
     this.inFlightLocks = new Set();
+    this.mediaControllers = new Map();
     this.lastClipboardText = '';
     this.clipboardInterval = null;
   }
@@ -51,6 +52,10 @@ class IpcBridge {
       clearInterval(this.clipboardInterval);
       this.clipboardInterval = null;
     }
+    for (const controller of this.mediaControllers.values()) {
+      try { controller.abort(); } catch {}
+    }
+    this.mediaControllers.clear();
   }
 
   /**
@@ -195,90 +200,47 @@ class IpcBridge {
           },
         });
 
-        const notifyUI = (channel, data) => {
-          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-            this.mainWindow.webContents.send(channel, data);
-          }
-        };
-
-        notifyUI('vortex:media-mux-started', {
-          id: taskId,
-          filename: finalFilename,
-          thumbnail,
-          durationFormatted,
-          presetLabel: preset.label,
-        });
-        notifyUI('bravedm:media-mux-started', {
-          id: taskId,
-          filename: finalFilename,
-          thumbnail,
-          durationFormatted,
-          presetLabel: preset.label,
-        });
-
-        // Launch yt-dlp download in background child process with 64 fragments
-        this.prober
-          .downloadMediaStream({
-            url: webpageUrl,
-            formatSelector: preset.formatSelector,
-            outputPath: finalPath,
-            concurrentFragments: 64,
-            onProgress: (progress) => {
-              if (progress.totalSizeStr) {
-                const parsedBytes = parseSizeStrToBytes(progress.totalSizeStr);
-                if (parsedBytes > 0 && (!taskRecord.totalBytes || parsedBytes > taskRecord.totalBytes)) {
-                  taskRecord.totalBytes = parsedBytes;
-                }
-              }
-
-              if (progress.percent != null) {
-                taskRecord.downloadedBytes = taskRecord.totalBytes
-                  ? Math.round((progress.percent / 100) * taskRecord.totalBytes)
-                  : progress.percent;
-              }
-
-              notifyUI('vortex:media-mux-progress', { id: taskId, ...progress });
-              notifyUI('bravedm:media-mux-progress', { id: taskId, ...progress });
-              this.dm.emit('task:updated', this.dm._sanitizeTaskForUI(taskRecord));
-            },
-          })
-          .then(async () => {
-            taskRecord.status = 'completed';
-            taskRecord.completedAt = Date.now();
-            taskRecord.finalPath = finalPath;
-            try {
-              const stat = await fsp.stat(finalPath);
-              taskRecord.totalBytes = stat.size;
-              taskRecord.downloadedBytes = stat.size;
-            } catch {}
-            await this.dm._persistStateImmediate();
-
-            notifyUI('vortex:media-mux-completed', { id: taskId, finalPath });
-            notifyUI('bravedm:media-mux-completed', { id: taskId, finalPath });
-            this.dm.emit('task:completed', this.dm._sanitizeTaskForUI(taskRecord));
-          })
-          .catch(async (err) => {
-            taskRecord.status = 'error';
-            taskRecord.error = err.message;
-            await this.dm._persistStateImmediate();
-
-            notifyUI('vortex:media-mux-error', { id: taskId, error: err.message });
-            notifyUI('bravedm:media-mux-error', { id: taskId, error: err.message });
-            this.dm.emit('task:error', this.dm._sanitizeTaskForUI(taskRecord));
-          });
-
+        this._startOrResumeMediaStream(taskRecord);
         return { taskId, mode: 'yt-dlp-mux' };
       });
     });
 
-    // 5. Task Pause & Resume Controls
-    handleBoth('vortex:pause-task', 'bravedm:pause-task', (_e, taskId) => this.dm.pauseTask(taskId));
-    handleBoth('vortex:resume-task', 'bravedm:resume-task', (_e, taskId) => this.dm.startTask(taskId));
+    // 5. Task Pause & Resume Controls (Supporting both Direct HTTP & yt-dlp Streams)
+    handleBoth('vortex:pause-task', 'bravedm:pause-task', async (_e, taskId) => {
+      const task = this.dm.tasks.get(taskId);
+      if (task && task.meta && task.meta.source === 'yt-dlp-mux') {
+        const controller = this.mediaControllers.get(taskId);
+        if (controller) {
+          controller.abort();
+          this.mediaControllers.delete(taskId);
+        }
+        task.status = 'paused';
+        task.speedBps = 0;
+        await this.dm._persistStateImmediate();
+        this.dm.emit('task:updated', this.dm._sanitizeTaskForUI(task));
+        return;
+      }
+      return await this.dm.pauseTask(taskId);
+    });
+
+    handleBoth('vortex:resume-task', 'bravedm:resume-task', async (_e, taskId) => {
+      const task = this.dm.tasks.get(taskId);
+      if (task && task.meta && task.meta.source === 'yt-dlp-mux') {
+        this._startOrResumeMediaStream(task);
+        return;
+      }
+      return await this.dm.startTask(taskId);
+    });
 
     // 6. Task Deletion & Clear Completed
     handleBoth('vortex:delete-task', 'bravedm:delete-task', async (_e, payload) => {
       const taskId = typeof payload === 'string' ? payload : payload.id;
       const deleteDiskFiles = typeof payload === 'object' ? Boolean(payload.deleteFiles) : false;
+      const controller = this.mediaControllers.get(taskId);
+      if (controller) {
+        controller.abort();
+        this.mediaControllers.delete(taskId);
+      }
       return await this.dm.deleteTask(taskId, deleteDiskFiles);
     });
 
@@ -319,28 +281,132 @@ class IpcBridge {
   }
 
   /**
+   * Spawns or resumes a managed yt-dlp media stream download with real-time UI telemetry
+   * and clean AbortSignal cancellation.
+   */
+  _startOrResumeMediaStream(taskRecord) {
+    const taskId = taskRecord.id;
+    const existing = this.mediaControllers.get(taskId);
+    if (existing) {
+      existing.abort();
+    }
+
+    const controller = new AbortController();
+    this.mediaControllers.set(taskId, controller);
+
+    taskRecord.status = 'downloading';
+    taskRecord.error = null;
+    this.dm.emit('task:updated', this.dm._sanitizeTaskForUI(taskRecord));
+
+    const notifyUI = (channel, data) => {
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send(channel, data);
+      }
+    };
+
+    notifyUI('vortex:media-mux-started', {
+      id: taskId,
+      filename: taskRecord.filename,
+      thumbnail: taskRecord.meta && taskRecord.meta.thumbnail,
+      durationFormatted: taskRecord.meta && taskRecord.meta.durationFormatted,
+      presetLabel: taskRecord.meta && taskRecord.meta.presetLabel,
+    });
+    notifyUI('bravedm:media-mux-started', {
+      id: taskId,
+      filename: taskRecord.filename,
+      thumbnail: taskRecord.meta && taskRecord.meta.thumbnail,
+      durationFormatted: taskRecord.meta && taskRecord.meta.durationFormatted,
+      presetLabel: taskRecord.meta && taskRecord.meta.presetLabel,
+    });
+
+    this.prober
+      .downloadMediaStream({
+        url: (taskRecord.meta && taskRecord.meta.url) || taskRecord.url,
+        formatSelector: taskRecord.meta && taskRecord.meta.formatSelector,
+        outputPath: taskRecord.finalPath,
+        concurrentFragments: 64,
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (progress.totalSizeStr) {
+            const parsedBytes = parseSizeStrToBytes(progress.totalSizeStr);
+            if (parsedBytes > 0 && (!taskRecord.totalBytes || parsedBytes > taskRecord.totalBytes)) {
+              taskRecord.totalBytes = parsedBytes;
+            }
+          }
+
+          if (progress.percent != null) {
+            taskRecord.downloadedBytes = taskRecord.totalBytes
+              ? Math.round((progress.percent / 100) * taskRecord.totalBytes)
+              : progress.percent;
+          }
+
+          notifyUI('vortex:media-mux-progress', { id: taskId, ...progress });
+          notifyUI('bravedm:media-mux-progress', { id: taskId, ...progress });
+          this.dm.emit('task:updated', this.dm._sanitizeTaskForUI(taskRecord));
+        },
+      })
+      .then(async () => {
+        this.mediaControllers.delete(taskId);
+        taskRecord.status = 'completed';
+        taskRecord.speedBps = 0;
+        taskRecord.completedAt = Date.now();
+        try {
+          const stat = await fsp.stat(taskRecord.finalPath);
+          taskRecord.totalBytes = stat.size;
+          taskRecord.downloadedBytes = stat.size;
+        } catch {}
+        await this.dm._persistStateImmediate();
+
+        notifyUI('vortex:media-mux-completed', { id: taskId, finalPath: taskRecord.finalPath });
+        notifyUI('bravedm:media-mux-completed', { id: taskId, finalPath: taskRecord.finalPath });
+        this.dm.emit('task:completed', this.dm._sanitizeTaskForUI(taskRecord));
+      })
+      .catch(async (err) => {
+        this.mediaControllers.delete(taskId);
+        if (controller.signal.aborted || taskRecord.status === 'paused') {
+          taskRecord.status = 'paused';
+          taskRecord.speedBps = 0;
+          await this.dm._persistStateImmediate();
+          this.dm.emit('task:updated', this.dm._sanitizeTaskForUI(taskRecord));
+          return;
+        }
+
+        taskRecord.status = 'error';
+        taskRecord.error = err.message;
+        taskRecord.speedBps = 0;
+        await this.dm._persistStateImmediate();
+
+        notifyUI('vortex:media-mux-error', { id: taskId, error: err.message });
+        notifyUI('bravedm:media-mux-error', { id: taskId, error: err.message });
+        this.dm.emit('task:error', this.dm._sanitizeTaskForUI(taskRecord));
+      });
+  }
+
+  /**
    * Monitors system clipboard for valid HTTP/HTTPS media or file links
    * and triggers auto-paste notifications in the Renderer UI.
    */
   _startClipboardMonitor() {
     this.clipboardInterval = setInterval(() => {
-      const text = (clipboard.readText() || '').trim();
-      if (!text || text === this.lastClipboardText) return;
+      try {
+        const text = (clipboard.readText() || '').trim();
+        if (!text || text === this.lastClipboardText) return;
 
-      if (/^https?:\/\/[^\s$.?#].[^\s]*$/i.test(text)) {
-        this.lastClipboardText = text;
-        const isMediaSite = /(youtube\.com|youtu\.be|vimeo\.com|twitch\.tv|twitter\.com|x\.com|tiktok\.com|dailymotion\.com)/i.test(text);
-        const isDirectFile = /\.(zip|rar|7z|tar|gz|bz2|xz|iso|img|mp4|mkv|webm|avi|mov|mp3|m4a|flac|wav|exe|msi|dmg|pkg|appimage|deb|rpm|pdf)(\?.*)?$/i.test(text);
+        if (/^https?:\/\/[^\s$.?#].[^\s]*$/i.test(text)) {
+          this.lastClipboardText = text;
+          const isMediaSite = /(youtube\.com|youtu\.be|vimeo\.com|twitch\.tv|twitter\.com|x\.com|tiktok\.com|dailymotion\.com|soundcloud\.com|facebook\.com|instagram\.com)/i.test(text);
+          const isDirectFile = /\.(zip|rar|7z|tar|gz|bz2|xz|iso|img|mp4|mkv|webm|avi|mov|mp3|m4a|flac|wav|exe|msi|dmg|pkg|appimage|deb|rpm|pdf)(\?.*)?$/i.test(text);
 
-        if ((isMediaSite || isDirectFile) && this.mainWindow && !this.mainWindow.isDestroyed()) {
-          const payload = {
-            url: text,
-            type: isMediaSite ? 'media' : 'direct',
-          };
-          this.mainWindow.webContents.send('vortex:clipboard-url-detected', payload);
-          this.mainWindow.webContents.send('bravedm:clipboard-url-detected', payload);
+          if ((isMediaSite || isDirectFile) && this.mainWindow && !this.mainWindow.isDestroyed()) {
+            const payload = {
+              url: text,
+              type: isMediaSite ? 'media' : 'direct',
+            };
+            this.mainWindow.webContents.send('vortex:clipboard-url-detected', payload);
+            this.mainWindow.webContents.send('bravedm:clipboard-url-detected', payload);
+          }
         }
-      }
+      } catch {}
     }, 1500);
   }
 }

@@ -85,8 +85,11 @@ class SegmentWorker {
     }
 
     const res = await fetch(task.url, { method: 'GET', headers, signal: controller.signal });
-    if (!res.ok && res.status !== 206) {
+    if (!res.ok) {
       throw new Error(`HTTP ${res.status} on segment ${segment.id}`);
+    }
+    if (task.supportsRanges && segment.endByte !== -1 && res.status !== 206) {
+      throw new Error(`Server returned HTTP ${res.status} instead of 206 Partial Content on segment ${segment.id}`);
     }
 
     // Open write stream positioned precisely at segment.currentOffset
