@@ -15,12 +15,6 @@ files:
   - "!**/*.map"
   - "!**/.DS_Store"
 
-extraResources:
-  - from: "bin/$os/${arch}/"
-    to: "bin"
-    filter:
-      - "**/*"
-
 afterPack: "./build/afterPack.js"
 
 protocols:
@@ -29,9 +23,15 @@ protocols:
       - "bravedm"
 
 linux:
+  maintainer: "Toufique Patel <toufique@localhost>"
   icon: build/icon.png
   category: Network;FileTransfer;
   synopsis: "Hybrid 64-Segment HTTP & yt-dlp Media Download Manager"
+  extraResources:
+    - from: "bin/linux/${arch}/"
+      to: "bin"
+      filter:
+        - "**/*"
   desktop:
     StartupWMClass: "bravedm"
     Keywords: "download;manager;idm;youtube;yt-dlp;fast;bravedm;"
@@ -51,14 +51,14 @@ appImage:
   artifactName: "BraveDM-${version}-${arch}.AppImage"
 
 pacman:
-  artifactName: "bravedm-${version}-${arch}.pkg.tar.zst"
+  artifactName: "bravedm-${version}-${arch}.pkg.tar.xz"
   depends:
     - gtk3
     - nss
     - alsa-lib
     - libnotify
     - xdg-utils
-  compression: zstd
+  compression: xz
 
 deb:
   artifactName: "bravedm_${version}_${arch}.deb"
@@ -71,6 +71,11 @@ deb:
 mac:
   icon: build/icon.icns
   category: public.app-category.utilities
+  extraResources:
+    - from: "bin/mac/${arch}/"
+      to: "bin"
+      filter:
+        - "**/*"
   target:
     - target: dmg
       arch:

@@ -2,7 +2,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-exports.default = async function afterPack(context) {
+async function afterPack(context) {
   const { appOutDir, electronPlatformName } = context;
 
   const resourcesDir =
@@ -21,4 +21,7 @@ exports.default = async function afterPack(context) {
       console.warn(`[afterPack] Warning: Could not chmod ${binPath}: ${err.message}`);
     }
   }
-};
+}
+
+module.exports = afterPack;
+module.exports.default = afterPack;

@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "description": "High-Performance Hybrid Segmented & Media Stream Download Manager",
   "main": "src/main/index.js",
-  "author": "Toufique Patel",
+  "author": {
+    "name": "Toufique Patel",
+    "email": "toufique@localhost"
+  },
+  "homepage": "https://github.com/bravedm/bravedm",
   "license": "MIT",
   "private": true,
   "scripts": {
